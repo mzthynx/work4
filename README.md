@@ -86,7 +86,62 @@ $R = L_{in} - 2(L_{in} \cdot N)N$
 
 ---
 
+## 🧩 核心代码及说明
+
+### 1️⃣ 迭代光线弹射（替代递归）
+
+```python
+for bounce in range(max_bounces[None]):
+    t, N, obj_color, mat_id = scene_intersect(ro, rd)
+    if t > 1e9:   # 未命中 → 累加背景色
+        final_color += throughput * bg_color
+        break
+
+    if mat_id == MAT_MIRROR:
+        # 更新射线为反射方向，继续循环
+        ro = p + N * 1e-4
+        rd = normalize(reflect(rd, N))
+        throughput *= 0.8 * obj_color
+
+    elif mat_id == MAT_DIFFUSE:
+        # 直接光照 + 阴影检测
+        L = normalize(light_pos - p)
+        shadow_t, _, _, _ = scene_intersect(p + N*1e-4, L)
+        in_shadow = shadow_t < (light_pos - p).norm()
+        direct_light = ambient + (0.8 * diff * obj_color if not in_shadow else 0)
+        final_color += throughput * direct_light
+        break   # 漫反射终止
+```
+
+### 2️⃣ 阴影痤疮的修正（关键偏移）
+
+```python
+shadow_ray_orig = p + N * 1e-4   # ✨ 法线方向微小偏移
+shadow_t, _, _, _ = scene_intersect(shadow_ray_orig, L)
+```
+
+### 3️⃣ 棋盘纹理平面求交
+
+```python
+@ti.func
+def intersect_plane(ro, rd, plane_y):
+    if ti.abs(rd.y) > 1e-5:
+        t = (plane_y - ro.y) / rd.y
+        if t > 0:
+            # 计算交点并依据 x,z 坐标生成棋盘色
+            p = ro + rd * t
+            ix = ti.floor(p.x * 2.0)
+            iz = ti.floor(p.z * 2.0)
+            color = ti.Vector([0.3,0.3,0.3]) if (ix+iz)%2==0 else ti.Vector([0.8,0.8,0.8])
+            return t, ti.Vector([0,1,0]), color, MAT_DIFFUSE
+    return -1.0, ti.Vector([0,0,0]), ti.Vector([0,0,0]), MAT_DIFFUSE
+```
+
+---
+
 ## 实验效果
+
+![Taichi光线追踪演示](https://github.com/mzthynx/work4/raw/master/work4.gif)
 
 | 弹射次数 = 1 | 弹射次数 = 3 |
 |---|---|
